@@ -1,0 +1,52 @@
+cmake_minimum_required(VERSION 2.8)
+project(BeanRaftUnittest)
+set(CMAKE_INSTALL_PREFIX /usr/local)
+
+option(BUILD_ALL "build from this cmakefile" ON)
+option(RUN_ALL "build from this cmakefile" ON)
+
+option(ASAN, "build with address sanitizer" OFF)
+option(TSAN, "build with thread sanitizer" OFF)
+
+IF(ASAN AND (NOT TSAN))
+    add_definitions(-g -ggdb)
+    SET(CMAKE_CXX_FLAGS "-fsanitize=address")
+    SET(CMAKE_LINKER_FLAGS "-fsanitize=address")
+ENDIF()
+
+IF(TSAN AND (NOT ASAN))
+    add_definitions(-g -ggdb)
+    SET(CMAKE_CXX_FLAGS "-fsanitize=address")
+    SET(CMAKE_LINKER_FLAGS "-fsanitize=address")
+ENDIF()
+
+MACRO(SUBDIRLIST result curdir)
+  FILE(GLOB children RELATIVE ${curdir} ${curdir}/*)
+  SET(dirlist "")
+  FOREACH(child ${children})
+    IF(IS_DIRECTORY ${curdir}/${child})
+        IF(NOT ${child} MATCHES "output")
+            IF(NOT ${child} MATCHES "build")
+                IF(NOT ${child} MATCHES "Common")
+                    LIST(APPEND dirlist ${child})
+                ENDIF()
+            ENDIF()
+        ENDIF()
+    ENDIF()
+  ENDFOREACH()
+  SET(${result} ${dirlist})
+ENDMACRO()
+
+SUBDIRLIST(SUBDIRS ${PROJECT_SOURCE_DIR})
+
+SET(TESTS "")
+FOREACH(subdir ${SUBDIRS})
+    message(STATUS ${subdir})
+    SET(TESTS "${TESTS} run_${subdir}")
+    ADD_SUBDIRECTORY(${subdir})
+    IF((NOT ${subdir} MATCHES "Base") AND RUN_ALL)
+        add_custom_target(run_${subdir} ALL
+            DEPENDS ${subdir}
+            COMMAND ${subdir}/${subdir} --gtest_output=xml:${PROJECT_SOURCE_DIR}/output/${subdir}.xml)
+    ENDIF()
+ENDFOREACH()
