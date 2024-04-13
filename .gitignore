@@ -3,3 +3,4 @@
 *.d
 .vscode
 /unittest/build
+/unittest/output
