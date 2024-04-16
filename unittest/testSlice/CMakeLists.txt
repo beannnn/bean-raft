@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 2.8)
-project(testMock)
+project(testSlice)
 #use name of dir as project name
 set(CMAKE_INSTALL_PREFIX /usr/local)
 
@@ -14,8 +14,8 @@ set(PROJECT_DEPS_DIR "${PROJECT_SOURCE_DIR}/../deps")
 add_definitions(-DPROXY_UNITTEST)
 add_definitions(-w -g -fno-permissive -fpermissive)
 
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}  -std=c++11 -fprofile-arcs -ftest-coverage")
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS}  -std=c11 -fprofile-arcs -ftest-coverage")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -fprofile-arcs -ftest-coverage")
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -std=c11 -fprofile-arcs -ftest-coverage")
 set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS}  -fprofile-arcs -ftest-coverage -lgcov")
 
 include_directories(
@@ -25,7 +25,7 @@ include_directories(
     ${PROJECT_DEPS_DIR}/googletest/googletest/include/gtest
 )
 
-add_executable(${PROJECT_NAME} TestGmock.cpp)
+add_executable(${PROJECT_NAME} TestSds.cpp)
 
 target_link_libraries(${PROJECT_NAME} gtest gcov pthread unittestBase
     ${PROJECT_DEPS_DIR}/googletest/build/googlemock/gtest/libgtest_main.a

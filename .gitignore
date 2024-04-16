@@ -4,3 +4,4 @@
 .vscode
 /unittest/build
 /unittest/output
+/src/raft

@@ -11,7 +11,9 @@ LDFLAGS += $(LDLIBCPP) -rdynamic -lpthread
 
 target = raft
 objs = \
-	 sum.o \
+	 sds.o \
+	 slice.o \
+	 util.o \
 	 main.o
 
 .PHONY : default debug clean
