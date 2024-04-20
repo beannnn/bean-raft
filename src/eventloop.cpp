@@ -153,12 +153,12 @@ void EventLoop::stop() {
 
 int EventLoop::mstime(void) {
     struct timeval tv;
-    int ust;
+    int mst;
 
     gettimeofday(&tv, NULL);
-    ust = (static_cast<int>(tv.tv_sec)) * 1000;
-    ust += static_cast<int>(tv.tv_usec / 1000);
-    return ust;
+    mst = (static_cast<int>(tv.tv_sec)) * 1000;
+    mst += static_cast<int>(tv.tv_usec / 1000);
+    return mst;
 }
 
 void EventLoop::processTimeEvents() {
