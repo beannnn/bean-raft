@@ -1,6 +1,10 @@
 #ifndef __REDIS_PROXY_EL_H__
 #define __REDIS_PROXY_EL_H__
+
 #include <functional>
+#include <queue>
+#include <vector>
+
 
 #define EPOLLIN  (1 << 1)
 #define EPOLLOUT (1 << 2)
@@ -39,14 +43,14 @@ private:
     void processTimeEvents();
 private:
     /* record the absolute time */
-    priority_queue<timeEvent, vector<timeEvent>, timeEventCompare> timer_events;
-    function<int(EventLoop *)> before_sleep;
-    function<int(EventLoop *)> after_sleep;
+    std::priority_queue<timeEvent, std::vector<timeEvent>, timeEventCompare> timer_events;
+    std::function<int(EventLoop *)> before_sleep;
+    std::function<int(EventLoop *)> after_sleep;
     time_t last_time;
     /* linux implementation for polling */
     int epollfd;
-    vector<struct epoll_event> epoll_events;
-    vector<fileEvent> events;
+    std::vector<struct epoll_event> epoll_events;
+    std::vector<fileEvent> events;
     /* eventloop state */
     bool running;
     /* private data for loop */

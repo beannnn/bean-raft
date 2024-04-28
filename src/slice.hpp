@@ -34,6 +34,11 @@ public:
     void append(const char *);
     void append(const char *, int len);
     void append(long long);
+    
+    /* resp handler */
+    void appendSimpleString();
+    void appendSimpleNumber();
+    
 private:
     void _initIfNeed();
 
