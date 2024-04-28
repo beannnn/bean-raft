@@ -1,5 +1,5 @@
 CXX ?= g++
-LVL ?= -g -O3
+LVL ?= -g -O0
 OPT += $(LVL)
 
 LDLIBCPP = -static-libstdc++
@@ -14,6 +14,7 @@ objs = \
 	 sds.o \
 	 slice.o \
 	 util.o \
+	 logger.o \
 	 main.o
 
 .PHONY : default debug clean

@@ -15,6 +15,8 @@
 #include <list>
 #include <iostream>
 #include <sstream>
+#include <iomanip>
+#include <utility>
 
 using namespace std;
 
@@ -43,12 +45,6 @@ static const int logcolors[5] = {
     LOG_COLOR_RED
 };
 
-//         case LOGLEVEL_DEBUG: color = LOG_COLOR_GRAY; break;
-//         case LOGLEVEL_INFO: color = LOG_COLOR_DEFAULT; break;
-//         case LOGLEVEL_SUCCESS: color = LOG_COLOR_GREEN; break;
-//         case LOGLEVEL_WARNING: color = LOG_COLOR_YELLOW; break;
-//         case LOGLEVEL_ERROR: color = LOG_COLOR_RED; break;
-
 static constexpr int LOG_HEADER_SIZE = 32;
 static constexpr int MAX_LOG_BUFFER_SIZE = 4096 - 32;  /* max size for normal log */
 static constexpr int MAX_LOG_ENTRY = 1024;             /* max memory buffer */
@@ -76,6 +72,14 @@ static void formatUnixTime(struct tm *tm_info) {
 static const char* constBasename(const char* filepath) {
   const char* base = strrchr(filepath, '/');
   return base ? (base + 1) : filepath;
+}
+
+static std::string hostname() {
+    char name[1024];
+    if (gethostname(name, 1024) == 0) {
+        return string(name);
+    }
+    return string();
 }
 
 class LoggerAllocator {
@@ -121,12 +125,13 @@ public:
     ~FileWritter() {
         if (stream) {
             fflush(stream);
+            fsync(fd);
             clearAllPageCache();
         }
     }
     bool write(const char *data, int len) {
         /* If create file failed last time, try to do it every call. */
-        if (!filename.empty() && !stream) _createFile();
+        if (!stream) _createFile();
         if (!stream) return false;
         
         // fwrite() doesn't return an error when the disk is full, for
@@ -148,7 +153,7 @@ public:
             posix_fadvise(fileno(stream), 0, len, POSIX_FADV_DONTNEED);
         }
     }
-    /* 当发生文件rotate的时候，需要 */
+    /* When deconstruct the logWritter or rotate the log, could clear all the file's page cache. */
     void clearAllPageCache() {
         uint32_t len = (file_size) & ~(PAGE_SIZE);
         posix_fadvise(fileno(stream), 0, len, POSIX_FADV_DONTNEED);
@@ -157,12 +162,14 @@ public:
         if (!stream) return;
         
         fflush(stream);
+        fdatasync(fd);
     }
-    /* 清理当前的stream的资源 */
+    /* Rotate the log file. */
     void rotate() {
         if (filename.empty()) return;
         if (stream) {
             fclose(stream);
+            fd = -1;
             stream = NULL;
         }
 
@@ -174,6 +181,7 @@ public:
 private:
     string filename;
     uint64_t file_size;
+    int fd;
     FILE *stream;
     
     bool _createFile() {
@@ -184,11 +192,12 @@ private:
         }
         if (stream) {
             fclose(stream);
+            fd = -1;
             stream = NULL;
         }
         const char *name = filename.c_str();
-        struct tm tm_info;
-        formatUnixTime(&tm_info);
+        struct tm tm_time;
+        formatUnixTime(&tm_time);
         
         ostringstream new_filename_stream;
         new_filename_stream.fill('0');
@@ -205,7 +214,7 @@ private:
                         << getpid();
         const string& new_filename = new_filename_stream.str();
 
-        int fd = open(new_filename.c_str(), O_WRONLY | O_CREAT | O_EXCL, 0664);
+        fd = open(new_filename.c_str(), O_WRONLY | O_CREAT | O_EXCL, 0664);
         if (fd == -1) {
             fprintf(stderr, "COULD NOT CREATE LOGFILE '%s'!\n", new_filename.c_str());
             return false;
@@ -220,37 +229,32 @@ private:
         }
         
         /* Create the soft symbol. */
-        const char* slash = strchr(name, '/');
         string linkname = string(name) + ".log";
-        string linkpath;
-        if ( slash ) linkpath = string(name, slash - name + 1);  // get dirname
-        linkpath += linkname;
-        unlink(linkpath.c_str());                    // delete old one if it exists
-        const char *linkdest = slash ? (slash + 1) : name;
-        symlink(linkdest, linkpath.c_str());
+        unlink(linkname.c_str());                    // delete old one if it exists
+        symlink(new_filename.c_str(), linkname.c_str());
 
         /* Add header content for a new file. */
         ostringstream file_header_stream;
         file_header_stream.fill('0');
         file_header_stream << "Log file created at: "
                         << 1900 + tm_time.tm_year << '/'
-                        << setw(2) << 1+tm_time.tm_mon << '/'
+                        << setw(2) << 1 + tm_time.tm_mon << '/'
                         << setw(2) << tm_time.tm_mday
                         << ' '
                         << setw(2) << tm_time.tm_hour << ':'
                         << setw(2) << tm_time.tm_min << ':'
                         << setw(2) << tm_time.tm_sec << '\n'
                         << "Running on machine: "
-                        // << hostname() << '\n'  // TODO: 
+                        << hostname() << '\n'
                         << "Log line format: yy-mm-dd hh:mm:ss.uuuuuu [DIWEF] file:line "
                         << ""
-                        << "threadid file:line] msg" << '\n';
+                        << "[file:line thread_role] msg" << '\n';
         const string &file_header_string = file_header_stream.str();
         const int header_len = file_header_string.size();
         fwrite(file_header_string.data(), 1, file_header_string.size(), stream);
         this->file_size += header_len;
         fflush(stream);
-        
+        fsync(fd);
         return true;
     }
 };
@@ -259,21 +263,31 @@ class LogWritter {
 public:
     LogWritter(const char *filename) :
         file_writer(filename),
-        alloc(), 
+        alloc(),
+        mu(),
+        cv(),
+        loglevel(LOG_INFO),
+        sync_loglevel(LOG_FATAL),
+        miss_logs(0),
+        blocked_threads(0),
         written_log_index(0),
         flushed_log_index(0),
         memtable_size(0),
+        disk_full_try_times(0),
         use_color(false),
         max_memtable_size(DEFAULT_MAX_MEMORY_SIZE),
-        max_file_size(DEFAULT_MAX_FILE_SIZE),
-        async_thread(asyncRun) {
-        // pthread_setname_np(static_cast<pthread_t>(async_thread.get_id()), "async-log");
+        max_file_size(DEFAULT_MAX_FILE_SIZE) {
+        running = true;
+        async_thread = thread(&LogWritter::asyncRun, this);
     }
     ~LogWritter() {
         mu.lock();
         running = false;
+        cv.notify_all();
         mu.unlock();
-        async_thread.join();
+        if (async_thread.joinable()) {
+            async_thread.join();
+        }
     }
     void setLogLevel(int level) {
         lock_guard<mutex> lk(mu);
@@ -293,10 +307,12 @@ public:
         lock_guard<mutex> lk(mu);
         max_file_size = (mb << 20);
     }
+    void setUseColor(bool use) {
+        use_color = use;
+    }
 
     void write(bool force_flush, time_t time, char *message, int message_len) {
-        unique_lock<mutex> lock;
-        lock.lock();
+        unique_lock<mutex> lock(mu);
         
         memtable.push_back(make_pair(message, message_len));
         written_log_index++;
@@ -304,6 +320,12 @@ public:
 
         // must block waiting for disk
         if (force_flush) {
+            /* Downgrade to normal log async write, we do not hope waitting for a long time. */
+            if (disk_full_try_times > 0) {
+                --disk_full_try_times;
+                return;
+            }
+
             uint64_t need_flushed_index = written_log_index;
             blocked_threads++;
             while (need_flushed_index > flushed_log_index) {
@@ -312,21 +334,27 @@ public:
             blocked_threads--;
             return;
         }
-        /* Normal case. */
-        // int64 now = 
-        if (memtable_size > 10240 || time > next_flush_time) {
+        /* Normal log write. Async write to log. */
+        if (memtable_size > 10240) {
+            if (disk_full_try_times) {
+                --disk_full_try_times;
+                return;
+            }
             /* The async thread is waiting, notify it. */
-            cv.notify_all();
+            if (blocked_threads > 0) {
+                cv.notify_all();
+            } else {
+                cv.notify_one();
+            }
         }
     }
 
     void writeLog(int loglevel, const char *file, int line, const  char *fmt, va_list ap) {
-        unique_lock<mutex> lock;
-        lock.lock();
+        unique_lock<mutex> lock(mu);
         if (loglevel < this->loglevel) {
             return;
         }
-        bool should_flush = (loglevel > sync_loglevel);
+        bool should_flush = (loglevel >= sync_loglevel);
         lock.unlock();
 
         /* Check the log thread is busy?
@@ -378,32 +406,44 @@ public:
             offset += snprintf(buf + offset, maxlen - offset, " %s ", loglevels[loglevel]);
         }
         offset += snprintf(buf + offset, maxlen - offset, " %s:%d ", constBasename(file), line);
-        offset += snprintf(buf + offset, maxlen - offset, " %c ", thread_identifier);
+        offset += snprintf(buf + offset, maxlen - offset, "%c ", thread_identifier);
         va_list ap_copy;
         va_copy(ap_copy, ap);
         offset += vsnprintf(buf + offset, maxlen - offset, fmt, ap_copy);
         va_end(ap_copy);
+        offset += snprintf(buf + offset,  maxlen - offset, "\n");
 
-        write(should_flush, timestamp, buf, offset + 1);
+        write(should_flush, timestamp, buf, offset);
     }
 
 private:
     void asyncRun() {
+        char misslog_buf[1024];
+        int misslog_len = 0;
+        pthread_setname_np(pthread_self(), "async-log");
         pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL);
         pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL);
 
         unique_lock<mutex> lock(mu);
-        lock.lock();
-        running = true;
-        
         while (true) {
             /* Every 10 seconds flush current log data.(maybe the log is still small.) */
-            while (running && !memtable.empty()) {
+            while (running && memtable.empty()) {
                 cv.wait_for(lock, chrono::seconds(10));
+            }
+            /* Wait for serval times for disk availiable again. */
+            if (disk_full_try_times > 0 && running) {
+                --disk_full_try_times;
+                continue;
             }
             /* Break the loop. */
             if (!running && memtable.empty()) {
                 break;
+            }
+            /* Check if exist miss logs. */
+            if (miss_logs > 0) {
+                int misslog_len = snprintf(misslog_buf, sizeof(miss_logs),
+                    "Exceed max log size, miss logs: %d, current mem size: %d", miss_logs, MAX_LOG_BUFFER_SIZE * MAX_LOG_ENTRY);
+                miss_logs = 0;
             }
             /* All the file operations should not hold the lock. */
             decltype(memtable) table;
@@ -427,21 +467,24 @@ private:
                 current_flushed_logs++;
                 current_written_size += tmp.second;
             }
+            if (misslog_len > 0) {
+                file_writer.write(misslog_buf, misslog_len);
+                misslog_len = 0;
+            }
             file_writer.flush();
-            file_writer.clearPageCache();
-            
+            // file_writer.clearPageCache();
+            /* Update the metadata for logger. */
             lock.lock();
             if (ite != table.end()) {
                 /* Do not write complete, the log write may have some problem.
                  * Wait for serveral seconds. */
                 table.erase(table.begin(), ite);
                 memtable.splice(memtable.begin(), table);
-                // stop_write = true;
+                /* The attempt times for trying write to disk. */
+                disk_full_try_times = 10;
             }
             memtable_size -= current_written_size;
-            // next_flush_time = ;
             flushed_log_index += current_flushed_logs;
-            
             if (blocked_threads == 1) {
                 cv.notify_one();
             } else if (blocked_threads > 1) {
@@ -450,6 +493,7 @@ private:
         }
 
         lock.unlock();
+        return;
     }
 
     FileWritter file_writer;
@@ -457,8 +501,8 @@ private:
     thread async_thread;
     mutex mu;
     condition_variable cv;
-    int sync_loglevel;
     int loglevel;
+    int sync_loglevel;
     int miss_logs;
     int blocked_threads;
 
@@ -466,9 +510,11 @@ private:
     uint64_t flushed_log_index;
     uint64_t memtable_size;
     list<pair<char *, int>> memtable;
-    time_t next_flush_time;
     char header;
     bool running;
+
+    /* Disk full failover. */
+    int disk_full_try_times;
 
     /* configurations */
     bool use_color;
@@ -511,4 +557,8 @@ void setMaxMemorySize(size_t kb) {
 
 void setMaxFileSize(size_t mb) {
     logger->setFileRotateSize(mb);
+}
+
+void setLogColor(bool set_color) {
+    logger->setUseColor(set_color);
 }

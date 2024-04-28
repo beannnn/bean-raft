@@ -7,7 +7,6 @@
 #define LOG_WARNING 2
 #define LOG_ERROR   3
 #define LOG_FATAL   4
-#define LOG_RAW     (1 << 5)
 
 void logfunction(int loglevel, const char *file, int line, const char *fmt, ...);
 long long logUstime(void);
@@ -29,7 +28,6 @@ long long logUstime(void);
 #define logError(fmt, args...)    \
     logfunction(LOG_ERROR, __FILE__, __LINE__, fmt, ##args)
 
-/* TODO: log fatal must hold the backtrace. */ 
 #define logFatal(fmt, args...)    \
     logfunction(LOG_FATAL, __FILE__, __LINE__, fmt, ##args)
 
@@ -46,10 +44,6 @@ long long logUstime(void);
         }  \
 } while(0)
 
-/* TODO:  */
-// #define logRaw(fmt, args...) \
-//     logfunction(LOG_RAW, NULL, 0, fmt, ##args);
-
 void initLoggingSystem(const char *filename);
 void deinitLoggingSystem();
 void setThreadLocalIdentifier(char identifier);
@@ -57,3 +51,4 @@ void setLogLevel(int loglevel);
 void setLogSyncLevel(int loglevel);
 void setMaxMemorySize(size_t kb);
 void setMaxFileSize(size_t mb);
+void setLogColor(bool set_color);
