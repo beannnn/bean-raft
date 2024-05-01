@@ -45,9 +45,8 @@ static const int logcolors[5] = {
     LOG_COLOR_RED
 };
 
-static constexpr int LOG_HEADER_SIZE = 32;
-static constexpr int MAX_LOG_BUFFER_SIZE = 4096 - 32;  /* max size for normal log */
-static constexpr int MAX_LOG_ENTRY = 1024;             /* max memory buffer */
+static constexpr int MAX_LOG_BUFFER_SIZE = 4096;        /* max size for normal log */
+static constexpr int MAX_LOG_ENTRY = 2048;              /* max memory buffer */
 static constexpr int PAGE_SIZE = 4096;                  /* linux file pagecache size */
 static constexpr uint64_t DEFAULT_MAX_MEMORY_SIZE = (1ull << 20);  /* default 1MB */
 static constexpr uint64_t DEFAULT_MAX_FILE_SIZE = 4 * (1ull << 30);  /* default 4GB */
@@ -115,10 +114,12 @@ private:
 
 class FileWritter {
 public:
-    FileWritter(const char *filename):
-        filename(filename),
+    FileWritter(const char *name):
+        filename(name),
         file_size(0ull),
         stream(nullptr) {
+        symlinkname = filename;
+        symlinkname += ".log";
         /* Try to create the file when Initalization. */
         _createFile();
     }
@@ -180,6 +181,7 @@ public:
     }
 private:
     string filename;
+    string symlinkname;
     uint64_t file_size;
     int fd;
     FILE *stream;
@@ -228,10 +230,12 @@ private:
             return false;
         }
         
-        /* Create the soft symbol. */
-        string linkname = string(name) + ".log";
-        unlink(linkname.c_str());                    // delete old one if it exists
-        symlink(new_filename.c_str(), linkname.c_str());
+        /* 比较绕，1，需要创建这个link，是绝对路径
+         * 2, 创建和文件之间的关系，是相对路径 */
+        const char *slash = strrchr(new_filename.c_str(), '/');
+        const char *linkdest = slash ? slash + 1 : new_filename.c_str();
+        unlink(symlinkname.c_str());  // delete old one if it exists
+        symlink(linkdest, symlinkname.c_str());
 
         /* Add header content for a new file. */
         ostringstream file_header_stream;
@@ -325,9 +329,9 @@ public:
                 --disk_full_try_times;
                 return;
             }
-
             uint64_t need_flushed_index = written_log_index;
             blocked_threads++;
+            cv.notify_all();
             while (need_flushed_index > flushed_log_index) {
                 cv.wait(lock);
             }
@@ -364,6 +368,7 @@ public:
             /* The log is not very importarnt, so just discard it. */
             lock.lock();
             if (loglevel < sync_loglevel) {
+                std::cout << "miss log" << std::endl;
                 miss_logs++;
                 return;
             }
@@ -400,10 +405,10 @@ public:
                         (int) tv.tv_usec);
         if (use_color) {
             offset = sprintf(buf, "\033[%dm", logcolors[loglevel]);
-            offset += snprintf(buf + offset, maxlen - offset, " %s ", loglevels[loglevel]);
+            offset += snprintf(buf + offset, maxlen - offset, " [%s]", loglevels[loglevel]);
             offset += snprintf(buf + offset, maxlen - offset, "\33[0m");
         } else {
-            offset += snprintf(buf + offset, maxlen - offset, " %s ", loglevels[loglevel]);
+            offset += snprintf(buf + offset, maxlen - offset, " [%s]", loglevels[loglevel]);
         }
         offset += snprintf(buf + offset, maxlen - offset, " %s:%d ", constBasename(file), line);
         offset += snprintf(buf + offset, maxlen - offset, "%c ", thread_identifier);
@@ -541,6 +546,10 @@ void logfunction(int loglevel, const char *file, int line, const char *fmt, ...)
 
 void setThreadLocalIdentifier(char identifier) {
     thread_identifier = identifier;
+}
+
+char getThreadLocalIdentifier() {
+    return thread_identifier;
 }
 
 void setLogLevel(int loglevel) {

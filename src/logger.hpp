@@ -13,7 +13,7 @@ long long logUstime(void);
 
 #define LOG_CONCAT(a, b) a##b
 
-#define logWithLevel(logleve, fmt, args...)  \
+#define logWithLevel(loglevel, fmt, args...)  \
     logfunction(loglevel, __FILE__, __LINE__, fmt, ##args)
 
 #define logDebug(fmt, args...)    \
@@ -36,7 +36,7 @@ long long logUstime(void);
     static std::atomic<long long> LOG_CONCAT(log_static_, __LINE__)(0);  \
     long long LOG_CONCAT(log_current, __LINE__) = logUstime();  \
     long long LOG_CONCAT(log_seen, __LINE__) = std::atomic_load_explicit(&LOG_CONCAT(log_static_, __LINE__), std::memory_order_relaxed); \
-    if (LOG_CONCAT(log_current, __LINE__) >= (LOG_CONCAT(log_seen, __LINE__) + seconds) &&  \
+    if (LOG_CONCAT(log_current, __LINE__) >= (LOG_CONCAT(log_seen, __LINE__) + seconds * 1000000) &&  \
         LOG_CONCAT(log_static_, __LINE__).compare_exchange_weak(  \
             LOG_CONCAT(log_seen, __LINE__),  \
             LOG_CONCAT(log_current, __LINE__))) {  \
@@ -46,6 +46,8 @@ long long logUstime(void);
 
 void initLoggingSystem(const char *filename);
 void deinitLoggingSystem();
+char getThreadLocalIdentifier();
+
 void setThreadLocalIdentifier(char identifier);
 void setLogLevel(int loglevel);
 void setLogSyncLevel(int loglevel);

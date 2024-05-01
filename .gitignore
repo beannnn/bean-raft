@@ -5,3 +5,6 @@
 /unittest/build
 /unittest/output
 /src/raft
+core
+core.*
+log.*

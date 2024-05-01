@@ -38,6 +38,11 @@ public:
     /* resp handler */
     void appendSimpleString();
     void appendSimpleNumber();
+    void appendError();
+    void generateArrayHeader();
+    void appendBulkString();
+    void appendInteger();
+    void appendNull();
     
 private:
     void _initIfNeed();
