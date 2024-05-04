@@ -6,46 +6,24 @@
 #include <cassert>
 
 #include <sys/time.h>
-#include <sys/epoll.h>
 
 #include "eventloop.hpp"
 
 using namespace std;
 
-struct fileEvent {
-    fileEvent() {
-        mask = EL_NONE;
-        readfn = nullptr;
-        writefn = nullptr;
-        fd = -1;
-        client_data = NULL;
-    }
-    fileEvent(const fileEvent &) = default;
-    fileEvent &operator=(const fileEvent &) = default;
-    ~fileEvent() = default;
-    int mask;  /* one of EL_(READABLE|WRITABLE|BARRIER) */
-    std::function<void(EventLoop *, int, void *)> readfn;
-    std::function<void(EventLoop *, int, void *)> writefn;
-    int fd;
-    void *client_data;
-};
-
-struct timeEvent {
-    long long when;  /* expire UNIX time */
-    std::function<int(EventLoop *, void *)> fn;  /* timed function */
-    void *client_data;
-};
-
-struct timeEventCompare {
-    bool operator()(const timeEvent &t1, const timeEvent &t2) {
-        return t1.when < t2.when;
-    }
-};
-
 EventLoop::EventLoop() {
     before_sleep = nullptr;
     after_sleep = nullptr;
     running = true;
+    epollfd = -1;
+}
+
+bool EventLoop::init() {
+    epollfd = epoll_create(1024); /* 1024 is just a hint for the kernel */
+    if (epollfd == -1) {
+        return false;
+    }
+    return true;
 }
 
 void EventLoop::addTimerEvent(long long millisecond, void *client_data, const std::function<int(EventLoop *, void *)> &fn) {
@@ -67,7 +45,6 @@ int EventLoop::addFileEvent(int fd, int mask, void *data, const std::function<vo
     fileEvent &event = events[fd];
     struct epoll_event ee = {0}; /* avoid valgrind warning */
     int op = (event.mask == EL_NONE ? EPOLL_CTL_ADD : EPOLL_CTL_MOD);  /* check first init in epoll or not. */
-    int op = EPOLL_CTL_ADD;
     
     ee.events = 0;
     if (mask & EL_READABLE) {
@@ -99,12 +76,15 @@ void EventLoop::delFileEvent(int fd, int mask) {
         epoll_ctl(epollfd, EPOLL_CTL_DEL, fd, &ee);
     }
 }
+
 void EventLoop::setBeforeSleep(const std::function<int(void *)> &f, void *data) {
     before_sleep = f;
 }
+
 void EventLoop::setAfterSleep(const std::function<int(void *)> &f, void *data) {
     after_sleep = f;
 }
+
 void EventLoop::processEvents() {
     /* count the wait time. */
     int retval = epoll_wait(epollfd, epoll_events.data(), events.size(), -1);

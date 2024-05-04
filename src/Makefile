@@ -15,6 +15,7 @@ objs = \
 	 slice.o \
 	 util.o \
 	 logger.o \
+	 eventloop.o \
 	 main.o
 
 .PHONY : default debug clean

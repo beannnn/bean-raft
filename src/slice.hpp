@@ -35,7 +35,7 @@ public:
     void append(const char *, int len);
     void append(long long);
     
-    /* resp handler */
+    /* resp protocol handler */
     void appendSimpleString();
     void appendSimpleNumber();
     void appendError();

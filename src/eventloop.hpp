@@ -1,10 +1,10 @@
-#ifndef __REDIS_PROXY_EL_H__
-#define __REDIS_PROXY_EL_H__
+#ifndef __BEAN_EVENTLOOP_H__
+#define __BEAN_EVENTLOOP_H__
 
 #include <functional>
 #include <queue>
 #include <vector>
-
+#include <sys/epoll.h>
 
 #define EPOLLIN  (1 << 1)
 #define EPOLLOUT (1 << 2)
@@ -16,9 +16,37 @@
 #define EL_READABLE 1
 #define EL_WRITABLE 2
 
-struct fileEvent;
-struct timeEvent;
-struct timeEventCompare;
+class EventLoop;
+
+struct fileEvent {
+    fileEvent() {
+        mask = EL_NONE;
+        readfn = nullptr;
+        writefn = nullptr;
+        fd = -1;
+        client_data = NULL;
+    }
+    fileEvent(const fileEvent &) = default;
+    fileEvent &operator=(const fileEvent &) = default;
+    ~fileEvent() = default;
+    int mask;  /* one of EL_(READABLE|WRITABLE|BARRIER) */
+    std::function<void(EventLoop *, int, void *)> readfn;
+    std::function<void(EventLoop *, int, void *)> writefn;
+    int fd;
+    void *client_data;
+};
+
+struct timeEvent {
+    long long when;  /* expire UNIX time */
+    std::function<int(EventLoop *, void *)> fn;  /* timed function */
+    void *client_data;
+};
+
+struct timeEventCompare {
+    bool operator()(const timeEvent &t1, const timeEvent &t2) {
+        return t1.when < t2.when;
+    }
+};
 
 class EventLoop {
 public:
@@ -26,9 +54,8 @@ public:
     ~EventLoop() = default;
     EventLoop(const EventLoop&) = delete;
     EventLoop& operator=(const EventLoop&) = delete;
+    bool init();
     void addTimerEvent(long long millisecond, void *client_data, const std::function<int(EventLoop *, void *)> &fn);
-    /* TODO: Impleted by time wheel. */
-    // void addRoughTimerEvent(long long millisecond, const std::function<int(EventLoop *, void *)> &f);
     int addFileEvent(int fd, int mask, void *data, const std::function<void(EventLoop *, int, void*)> &fn);
     void delFileEvent(int fd, int mask);
     void setBeforeSleep(const std::function<int(void *)> &f, void *data);
@@ -36,8 +63,6 @@ public:
     void processEvents();
     void polling();
     void stop();
-public:
-    void *private_data;
 private:
     int mstime(void);
     void processTimeEvents();
@@ -53,8 +78,9 @@ private:
     std::vector<fileEvent> events;
     /* eventloop state */
     bool running;
-    /* private data for loop */
+    /* private data for this eventloop */
+public:
     void *private_data;
 };
 
-#endif // __REDIS_PROXY_EL_H__
+#endif // __BEAN_EVENTLOOP_H__

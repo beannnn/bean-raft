@@ -1,3 +1,5 @@
+#ifndef __BEAN_LOGGER_H__
+#define __BEAN_LOGGER_H__
 
 #include <stdio.h>
 #include <atomic>
@@ -54,3 +56,5 @@ void setLogSyncLevel(int loglevel);
 void setMaxMemorySize(size_t kb);
 void setMaxFileSize(size_t mb);
 void setLogColor(bool set_color);
+
+#endif // __BEAN_LOGGER_H__
