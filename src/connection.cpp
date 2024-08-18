@@ -80,6 +80,9 @@ struct VoteReply {
     bool voteGranted;
 };
 
+/* For faster failover, each follower will hold the connection with other nodes. */
+/* +ping\r\n */
+
 struct AppendEntriedRequest {
     uint64_t term;
     uint64_t leaderId;
@@ -289,6 +292,7 @@ public:
     int raftCron() {
         switch (role) {
         case leader:
+            /* 对于所有的节点，发送ping消息. */
             // for (auto ite = peers.begin(); ite != peers.end(); ++ite) {
                 
             // }
